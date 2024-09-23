@@ -1,58 +1,66 @@
-﻿using System.Collections.Generic;
+﻿using System.Linq;
+using Unity.Burst;
+using Unity.Collections;
 using UnityEngine;
 
-class MeshData
+[BurstCompile]
+public struct MeshDataS
 {
-    public List<Vector3> points;
-    public List<int> triangles;
-    private List<Vector3> intersections;
-    private List<int> intersectionIndexes;
+    public NativeList<Vector3> points;
+    public NativeList<int> triangles;
 
+    private NativeList<Vector3> intersections;
+    private NativeList<int> intersectionIndexes;
     private Vector3 camForward;
 
-    public MeshData()
+    public MeshDataS(in Vector3 camForward, Allocator allocator)
     {
-        points = new List<Vector3>();
-        triangles = new List<int>();
-        intersections = new List<Vector3>();
-        intersectionIndexes = new List<int>();
+        points = new NativeList<Vector3>(allocator);
+        triangles = new NativeList<int>(allocator);
+        intersections = new NativeList<Vector3>(allocator);
+        intersectionIndexes = new NativeList<int>(allocator);
+
+        this.camForward = camForward;
     }
 
-    public void InitForward()
+    public void AddRange(in Vector3 point0, in Vector3 point1, in Vector3 point2)
     {
-        camForward = Camera.main.transform.forward;
-    }
-
-    public void AddRange(IEnumerable<Vector3> points)
-    {
-        this.points.AddRange(points);
+        points.Add(point0);
+        points.Add(point1);
+        points.Add(point2);
         AddPointsToTriangle();
     }
 
     public void AddAlonePoint(in Vector3 alone, in Vector3 firstIntersection, in Vector3 secondIntersection, bool isFacing)
     {
-        points.AddRange(new Vector3[] { alone, firstIntersection, secondIntersection });
+        points.Add(alone);
+        points.Add(firstIntersection);
+        points.Add(secondIntersection);
         bool thisFaceFacing = isFaceTowardCamera(alone, firstIntersection, secondIntersection);
         AddPointsToTriangle(isFacing, thisFaceFacing);
         intersections.Add(firstIntersection);
         intersections.Add(secondIntersection);
-        intersectionIndexes.Add(points.Count - 2);
-        intersectionIndexes.Add(points.Count - 1);
+        intersectionIndexes.Add(points.Length - 2);
+        intersectionIndexes.Add(points.Length - 1);
     }
 
     public void AddTogetherPoints(in Vector3 first, in Vector3 second, in Vector3 firstIntersection, in Vector3 secondIntersection, bool isFacing)
     {
-        points.AddRange(new Vector3[] { firstIntersection, first, second });
-        
+        points.Add(firstIntersection);
+        points.Add(first);
+        points.Add(second);
+
         bool thisFaceFacing = isFaceTowardCamera(firstIntersection, first, second);
         AddPointsToTriangle(isFacing, thisFaceFacing);
-        points.AddRange(new Vector3[] { firstIntersection, secondIntersection, second });
+        points.Add(firstIntersection);
+        points.Add(secondIntersection);
+        points.Add(second);
         bool thisFaceFacing2 = isFaceTowardCamera(firstIntersection, secondIntersection, second);
         AddPointsToTriangle(isFacing, thisFaceFacing2);
         intersections.Add(firstIntersection);
         intersections.Add(secondIntersection);
-        intersectionIndexes.Add(points.Count - 3);
-        intersectionIndexes.Add(points.Count - 2);
+        intersectionIndexes.Add(points.Length - 3);
+        intersectionIndexes.Add(points.Length - 2);
     }
 
     public void ComputeIntersectionTriangles(bool isFacingCam)
@@ -62,11 +70,11 @@ class MeshData
         {
             barycenter += intersection;
         }
-        barycenter /= intersections.Count;
+        barycenter /= intersections.Length;
         points.Add(barycenter);
-        int barycenterIndex = points.Count - 1;
+        int barycenterIndex = points.Length - 1;
 
-        for (int i = 0; i < intersectionIndexes.Count; i+=2)
+        for (int i = 0; i < intersectionIndexes.Length; i += 2)
         {
             bool isFacing = isFaceTowardCamera(points[intersectionIndexes[i]], points[barycenterIndex], points[intersectionIndexes[i + 1]]);
             if (isFacing == isFacingCam)
@@ -77,7 +85,7 @@ class MeshData
             }
             else
             {
-                triangles.Add(intersectionIndexes[i]);                
+                triangles.Add(intersectionIndexes[i]);
                 triangles.Add(intersectionIndexes[i + 1]);
                 triangles.Add(barycenterIndex);
             }
@@ -86,25 +94,36 @@ class MeshData
 
     private void AddPointsToTriangle()
     {
-        triangles.AddRange(new int[] { points.Count - 3, points.Count - 2, points.Count - 1 });
+        triangles.Add(points.Length - 3);
+        triangles.Add(points.Length - 2);
+        triangles.Add(points.Length - 1);
     }
 
     private void AddPointsToTriangle(bool previousFaceFacing, bool thisFaceFacing)
     {
         //add calculus of triangle order
-        if(previousFaceFacing == thisFaceFacing) 
-            triangles.AddRange(new int[] { points.Count - 3, points.Count - 2, points.Count - 1 });
+        if (previousFaceFacing == thisFaceFacing)
+        {
+            triangles.Add(points.Length - 3);
+            triangles.Add(points.Length - 2);
+            triangles.Add(points.Length - 1);
+        }
         else
-            triangles.AddRange(new int[] { points.Count - 3, points.Count - 1, points.Count - 2 });
+        {
+            triangles.Add(points.Length - 3);
+            triangles.Add(points.Length - 1);
+            triangles.Add(points.Length - 2);
+        }
     }
 
-    bool isFaceTowardCamera(params Vector3[] pointsPositions)
+    bool isFaceTowardCamera(in Vector3 pos0, in Vector3 pos1, in Vector3 pos2)
     {
-        Vector3 side1 = pointsPositions[1] - pointsPositions[0];
-        Vector3 side2 = pointsPositions[2] - pointsPositions[0];
+        Vector3 side1 = pos1 - pos0;
+        Vector3 side2 = pos2 - pos0;
 
         Vector3 cross = Vector3.Cross(side1, side2);
 
         return Vector3.Dot(cross, camForward) > 0;
     }
 }
+
